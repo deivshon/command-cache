@@ -29,12 +29,14 @@ fn execute_command(command: &String, args: &[String]) -> String {
         command.arg(command_arg);
     }
 
-    let Ok(command_output) = command.output() else {
-        failure("Could not get command output");
+    let command_output = match command.output() {
+        Ok(output) => output,
+        Err(e) => failure(&format!("Could not get command output: {}", e))
     };
 
-    let Ok(command_output) = String::from_utf8(command_output.stdout) else {
-        failure("Could not convert command output to UTF-8 encoded text");
+    let command_output = match String::from_utf8(command_output.stdout) {
+        Ok(output) => output,
+        Err(e) => failure(&format!("Could not convert command output to UTF-8 encoded text: {}", e))
     };
 
     return command_output;
