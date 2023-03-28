@@ -94,7 +94,10 @@ fn main() {
             Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e))
         }
         
-        cache = Cache::from(cache_bytes);
+        cache = match Cache::try_from(cache_bytes) {
+            Ok(cache) => cache,
+            Err(e) => failure(&format!("{}", e))
+        };
     }
     else {
         let lock_options = FileOptions::new().write(true).read(true).create_new(true);

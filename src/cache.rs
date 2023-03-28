@@ -1,25 +1,48 @@
 use core::convert;
+use std::str::Utf8Error;
+use std::fmt;
+
+pub enum ParseError {
+	TimestampErr,
+	UTF8Err(Utf8Error),
+}
+
+impl fmt::Display for ParseError {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ParseError::TimestampErr => write!(f, "Error parsing timestamp from binary cache"),
+			ParseError::UTF8Err(e) => write!(f, "Error parsing UTF-8 encoded output from cache: {}", e)
+        }
+    }
+}
+
+impl convert::From<Utf8Error> for ParseError {
+	fn from(err: Utf8Error) -> ParseError {
+		return ParseError::UTF8Err(err)
+	}
+}
 
 pub struct Cache {
 	pub ts: u128,
 	pub output: String
 }
 
-impl convert::From<Vec<u8>> for Cache {
-	fn from(bytes: Vec<u8>) -> Cache {
-		let ts = u128::from_le_bytes(
-			bytes[0..16]
-				.try_into()
-				.expect("Error parsing timestamp from binary cache")
-		);
-		let output = std::str::from_utf8(&bytes[16..])
-			.expect("Could not parse UTF-8 encoded output from cache")
+impl convert::TryFrom<Vec<u8>> for Cache {
+	type Error = ParseError;
+
+	fn try_from(bytes: Vec<u8>) -> Result<Cache, ParseError> {
+		let Ok(ts_bytes) = bytes[0..16].try_into() else {
+			return Err(ParseError::TimestampErr)
+		};
+		let ts = u128::from_le_bytes(ts_bytes);
+
+		let output = std::str::from_utf8(&bytes[16..])?
 			.to_string();
 		
-		return Cache {
+		return Ok(Cache {
 			ts: ts,
 			output: output
-		}
+		})
 	}
 }
 
