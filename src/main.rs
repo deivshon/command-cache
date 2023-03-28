@@ -1,9 +1,17 @@
 use std::process::{exit, Command};
 use std::time::SystemTime;
+use std::fs;
+use std::path::Path;
+use file_lock::{FileLock, FileOptions};
+use std::io::prelude::*;
+
+use md5;
 
 const TIME_LIMIT: usize = 1;
 const COMMAND: usize = 2;
 const ARGS_START: usize = 3;
+
+const CACHE_DIR: &str = "/tmp/command-cache";
 
 fn failure(msg: &str) -> ! {
     eprintln!("command-cache: {}", msg);
@@ -43,7 +51,7 @@ fn main() {
     let now = SystemTime::UNIX_EPOCH.elapsed()
         .expect("Could not retrieve UNIX timestamp")
         .as_millis();
-    
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 3 {
@@ -54,7 +62,44 @@ fn main() {
         failure("Could not parse time limit");
     };
     
-    let output = execute_command(&args[COMMAND], &args[ARGS_START..]);
+    let command_id = format!("{:?}", command_hash(&args[COMMAND..]));
+    let cache_path = format!("{}/{}", CACHE_DIR, command_id);
 
-    println!("{}", output);
+    if !Path::new(CACHE_DIR).is_dir() {
+        fs::create_dir_all(CACHE_DIR)
+        .expect(&format!("Could not create cache directory {}", CACHE_DIR));
+};
+
+    let mut output = String::new();
+    
+    if Path::new(&cache_path).exists() {
+        let lock_options = FileOptions::new().write(true).read(true);
+
+        let mut filelock = match FileLock::lock(&cache_path, true, lock_options) {
+            Ok(lock) => lock,
+            Err(e) =>  failure(&format!("Could not acquire lock on cache file {}: {}", cache_path, e))
+        };
+
+        match filelock.file.read_to_string(&mut output) {
+            Ok(_) => (),
+            Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e))
+        }
+    }
+    else {
+        let lock_options = FileOptions::new().write(true).read(true).create_new(true);
+
+        let mut filelock = match FileLock::lock(&cache_path, true, lock_options) {
+            Ok(lock) => lock,
+            Err(e) =>  failure(&format!("Could not acquire lock on cache file {}: {}", cache_path, e))
+        };
+
+        output = execute_command(&args[COMMAND], &args[ARGS_START..]);
+
+        match filelock.file.write_all(&output.as_bytes()) {
+            Ok(_) => (),
+            Err(e) => failure(&format!("Could write to {}: {}", cache_path, e))
+        }
+    };
+
+    print!("{}", output);
 }
