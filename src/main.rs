@@ -68,18 +68,18 @@ fn main() {
     let Ok(period) = args[TIME_LIMIT].parse::<u128>() else {
         failure("Could not parse time limit");
     };
-    
+
     let command_id = format!("{:?}", command_hash(&args[COMMAND..]));
     let cache_path = format!("{}/{}", CACHE_DIR, command_id);
 
     if !Path::new(CACHE_DIR).is_dir() {
         fs::create_dir_all(CACHE_DIR)
         .expect(&format!("Could not create cache directory {}", CACHE_DIR));
-};
+    };
 
     let output;
+    let mut cache: Cache;
 
-    let cache: Cache;
     if Path::new(&cache_path).exists() {
         let lock_options = FileOptions::new().write(true).read(true);
 
@@ -93,11 +93,31 @@ fn main() {
             Ok(_) => (),
             Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e))
         }
-        
+
         cache = match Cache::try_from(cache_bytes) {
             Ok(cache) => cache,
             Err(e) => failure(&format!("{}", e))
         };
+
+        let now = SystemTime::UNIX_EPOCH
+            .elapsed()
+            .expect("Could not retrieve UNIX timestamp")
+            .as_millis();
+
+        if now - cache.ts > period {
+            filelock.file.rewind().expect("Could not seek to start of cache");
+
+            output = execute_command(&args[COMMAND], &args[ARGS_START..]);
+            cache = Cache {
+                ts: current_timestamp(),
+                output: output
+            };
+
+            match filelock.file.write_all(&cache.as_bytes()) {
+                Ok(_) => (),
+                Err(e) => failure(&format!("Could write to {}: {}", cache_path, e))
+            }
+        }
     }
     else {
         let lock_options = FileOptions::new().write(true).read(true).create_new(true);
@@ -108,7 +128,6 @@ fn main() {
         };
 
         output = execute_command(&args[COMMAND], &args[ARGS_START..]);
-
         cache = Cache {
             ts: current_timestamp(),
             output: output
@@ -120,5 +139,5 @@ fn main() {
         }
     };
 
-    print!("{}, {}", cache.ts, cache.output);
+    print!("{}", cache.output);
 }
