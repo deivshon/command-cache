@@ -1,3 +1,7 @@
+pub mod cache;
+
+use crate::cache::Cache;
+
 use std::process::{exit, Command};
 use std::time::SystemTime;
 use std::fs;
@@ -47,11 +51,14 @@ fn command_hash(command: &[String]) -> md5::Digest {
     return md5::compute(command_representation);
 }
 
-fn main() {
-    let now = SystemTime::UNIX_EPOCH.elapsed()
+#[inline]
+fn current_timestamp() -> u128 {
+    SystemTime::UNIX_EPOCH.elapsed()
         .expect("Could not retrieve UNIX timestamp")
-        .as_millis();
+        .as_millis()
+}
 
+fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 3 {
@@ -70,8 +77,9 @@ fn main() {
         .expect(&format!("Could not create cache directory {}", CACHE_DIR));
 };
 
-    let mut output = String::new();
-    
+    let output;
+
+    let cache: Cache;
     if Path::new(&cache_path).exists() {
         let lock_options = FileOptions::new().write(true).read(true);
 
@@ -80,10 +88,13 @@ fn main() {
             Err(e) =>  failure(&format!("Could not acquire lock on cache file {}: {}", cache_path, e))
         };
 
-        match filelock.file.read_to_string(&mut output) {
+        let mut cache_bytes: Vec<u8> = vec![];
+        match filelock.file.read_to_end(&mut cache_bytes) {
             Ok(_) => (),
             Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e))
         }
+        
+        cache = Cache::from(cache_bytes);
     }
     else {
         let lock_options = FileOptions::new().write(true).read(true).create_new(true);
@@ -95,11 +106,16 @@ fn main() {
 
         output = execute_command(&args[COMMAND], &args[ARGS_START..]);
 
-        match filelock.file.write_all(&output.as_bytes()) {
+        cache = Cache {
+            ts: current_timestamp(),
+            output: output
+        };
+
+        match filelock.file.write_all(&cache.as_bytes()) {
             Ok(_) => (),
             Err(e) => failure(&format!("Could write to {}: {}", cache_path, e))
         }
     };
 
-    print!("{}", output);
+    print!("{}, {}", cache.ts, cache.output);
 }
