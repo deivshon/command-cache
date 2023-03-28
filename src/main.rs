@@ -28,6 +28,17 @@ fn execute_command(command: &String, args: &[String]) -> String {
     return command_output;
 }
 
+fn command_hash(command: &[String]) -> md5::Digest {
+    let mut command_representation: Vec<u8> = vec![];
+
+    for i in 0..command.len() {
+        command_representation.extend_from_slice(command[i].as_bytes());
+        command_representation.push(i as u8)
+    }
+
+    return md5::compute(command_representation);
+}
+
 fn main() {
     let now = SystemTime::UNIX_EPOCH.elapsed()
         .expect("Could not retrieve UNIX timestamp")
