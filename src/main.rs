@@ -1,13 +1,15 @@
 pub mod cache;
+pub mod command;
 
 use crate::cache::Cache;
+use crate::command::execute_command;
 
-use std::process::{exit, Command};
-use std::time::SystemTime;
-use std::fs;
-use std::path::Path;
 use file_lock::{FileLock, FileOptions};
+use std::fs;
 use std::io::prelude::*;
+use std::path::Path;
+use std::process::exit;
+use std::time::SystemTime;
 
 use md5;
 
@@ -20,26 +22,6 @@ const CACHE_DIR: &str = "/tmp/command-cache";
 fn failure(msg: &str) -> ! {
     eprintln!("command-cache: {}", msg);
     exit(1)
-}
-
-fn execute_command(command: &String, args: &[String]) -> String {
-    let mut command = Command::new(command);
-
-    for command_arg in args {
-        command.arg(command_arg);
-    }
-
-    let command_output = match command.output() {
-        Ok(output) => output,
-        Err(e) => failure(&format!("Could not get command output: {}", e))
-    };
-
-    let command_output = match String::from_utf8(command_output.stdout) {
-        Ok(output) => output,
-        Err(e) => failure(&format!("Could not convert command output to UTF-8 encoded text: {}", e))
-    };
-
-    return command_output;
 }
 
 fn command_hash(command: &[String]) -> md5::Digest {
@@ -55,9 +37,48 @@ fn command_hash(command: &[String]) -> md5::Digest {
 
 #[inline]
 fn current_timestamp() -> u128 {
-    SystemTime::UNIX_EPOCH.elapsed()
+    SystemTime::UNIX_EPOCH
+        .elapsed()
         .expect("Could not retrieve UNIX timestamp")
         .as_millis()
+}
+
+fn store_output(
+    command: &String,
+    args: &[String],
+    output: &mut String,
+    filelock: &mut FileLock,
+    cache_path: &String,
+) {
+    *output = match execute_command(command, args) {
+        Ok(output) => output,
+        Err(e) => {
+            filelock
+                .unlock()
+                .expect("Command failed, could not unlock cache file to delete before exiting");
+
+            fs::remove_file(cache_path)
+                .expect("Command failed, could not delete cache file before exiting");
+
+            failure(&format!("{}", e))
+        }
+    };
+}
+
+fn cache_write(filelock: &mut FileLock, cache: &Cache, cache_path: &String) {
+    match filelock.file.write_all(&cache.as_bytes()) {
+        Ok(_) => (),
+        Err(e) => {
+            filelock
+                .unlock()
+                .expect("Cache write failed, could not unlock cache file to delete before exiting");
+
+            fs::remove_file(&cache_path)
+                .expect("Cache write failed, could not delete cache file before exiting");
+
+            failure(&format!("Could write to {}: {}", cache_path, e))
+        }
+    }
 }
 
 fn main() {
@@ -76,10 +97,10 @@ fn main() {
 
     if !Path::new(CACHE_DIR).is_dir() {
         fs::create_dir_all(CACHE_DIR)
-        .expect(&format!("Could not create cache directory {}", CACHE_DIR));
+            .expect(&format!("Could not create cache directory {}", CACHE_DIR));
     };
 
-    let output;
+    let mut output = String::new();
     let mut cache: Cache;
 
     if Path::new(&cache_path).exists() {
@@ -87,58 +108,69 @@ fn main() {
 
         let mut filelock = match FileLock::lock(&cache_path, true, lock_options) {
             Ok(lock) => lock,
-            Err(e) =>  failure(&format!("Could not acquire lock on cache file {}: {}", cache_path, e))
+            Err(e) => failure(&format!(
+                "Could not acquire lock on cache file {}: {}",
+                cache_path, e
+            )),
         };
 
         let mut cache_bytes: Vec<u8> = vec![];
         match filelock.file.read_to_end(&mut cache_bytes) {
             Ok(_) => (),
-            Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e))
+            Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e)),
         }
 
         cache = match Cache::try_from(cache_bytes) {
             Ok(cache) => cache,
-            Err(e) => failure(&format!("{}", e))
+            Err(e) => failure(&format!("{}", e)),
         };
 
-        let now = SystemTime::UNIX_EPOCH
-            .elapsed()
-            .expect("Could not retrieve UNIX timestamp")
-            .as_millis();
+        if current_timestamp() - cache.ts > period {
+            filelock
+                .file
+                .rewind()
+                .expect("Could not seek to start of cache");
 
-        if now - cache.ts > period {
-            filelock.file.rewind().expect("Could not seek to start of cache");
+            store_output(
+                &args[COMMAND],
+                &args[ARGS_START..],
+                &mut output,
+                &mut filelock,
+                &cache_path,
+            );
 
-            output = execute_command(&args[COMMAND], &args[ARGS_START..]);
             cache = Cache {
                 ts: current_timestamp(),
-                output: output
+                output: output,
             };
 
-            match filelock.file.write_all(&cache.as_bytes()) {
-                Ok(_) => (),
-                Err(e) => failure(&format!("Could write to {}: {}", cache_path, e))
-            }
+            cache_write(&mut filelock, &cache, &cache_path);
         }
-    }
-    else {
+    } else {
         let lock_options = FileOptions::new().write(true).read(true).create_new(true);
 
         let mut filelock = match FileLock::lock(&cache_path, true, lock_options) {
             Ok(lock) => lock,
-            Err(e) =>  failure(&format!("Could not acquire lock on cache file {}: {}", cache_path, e))
+            Err(e) => failure(&format!(
+                "Could not acquire lock on cache file {}: {}",
+                cache_path, e
+            )),
         };
 
-        output = execute_command(&args[COMMAND], &args[ARGS_START..]);
+        store_output(
+            &args[COMMAND],
+            &args[ARGS_START..],
+            &mut output,
+            &mut filelock,
+            &cache_path,
+        );
+
         cache = Cache {
             ts: current_timestamp(),
-            output: output
+            output: output,
         };
 
-        match filelock.file.write_all(&cache.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => failure(&format!("Could write to {}: {}", cache_path, e))
-        }
+        cache_write(&mut filelock, &cache, &cache_path);
     };
 
     print!("{}", cache.output);
