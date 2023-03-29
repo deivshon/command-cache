@@ -13,11 +13,14 @@ use std::time::SystemTime;
 
 use md5;
 
+const CACHE_DIR: &str = "/tmp/command-cache";
+
+const COMMAND_CACHE_ARG: usize = 1;
 const TIME_LIMIT: usize = 1;
 const COMMAND: usize = 2;
 const ARGS_START: usize = 3;
 
-const CACHE_DIR: &str = "/tmp/command-cache";
+const PURGE: &str = "--purge";
 
 fn failure(msg: &str) -> ! {
     eprintln!("command-cache: {}", msg);
@@ -83,6 +86,18 @@ fn cache_write(filelock: &mut FileLock, cache: &Cache, cache_path: &String) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    if args[COMMAND_CACHE_ARG] == PURGE {
+        if Path::new(CACHE_DIR).exists() {
+            match fs::remove_dir_all(CACHE_DIR) {
+                Ok(_) => exit(0),
+                Err(e) => failure(&format!("Could not purge cache: {}", e))
+            }
+        }
+        else {
+            failure("Cache is already empty")
+        }
+    }
 
     if args.len() < 3 {
         failure("Not enough arguments");
