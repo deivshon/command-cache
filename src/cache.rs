@@ -5,13 +5,15 @@ use std::fmt;
 pub enum ParseError {
 	TimestampErr,
 	UTF8Err(Utf8Error),
+	MalformedCache
 }
 
 impl fmt::Display for ParseError {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ParseError::TimestampErr => write!(f, "Error parsing timestamp from binary cache"),
-			ParseError::UTF8Err(e) => write!(f, "Error parsing UTF-8 encoded output from cache: {}", e)
+			ParseError::UTF8Err(e) => write!(f, "Error parsing UTF-8 encoded output from cache: {}", e),
+			ParseError::MalformedCache => write!(f, "Error parsing cache: Malformed cache file")
         }
     }
 }
@@ -31,6 +33,10 @@ impl convert::TryFrom<Vec<u8>> for Cache {
 	type Error = ParseError;
 
 	fn try_from(bytes: Vec<u8>) -> Result<Cache, ParseError> {
+		if bytes.len() < 16 {
+			return Err(ParseError::MalformedCache)
+		}
+
 		let Ok(ts_bytes) = bytes[0..16].try_into() else {
 			return Err(ParseError::TimestampErr)
 		};
