@@ -91,10 +91,9 @@ fn main() {
         if Path::new(CACHE_DIR).exists() {
             match fs::remove_dir_all(CACHE_DIR) {
                 Ok(_) => exit(0),
-                Err(e) => failure(&format!("Could not purge cache: {}", e))
+                Err(e) => failure(&format!("Could not purge cache: {}", e)),
             }
-        }
-        else {
+        } else {
             failure("Cache is already empty")
         }
     }
