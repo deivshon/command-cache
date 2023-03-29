@@ -11,6 +11,11 @@ $ command-cache {time-limit} {command} {command arguments}
 
 The time limit is expressed in milliseconds. If the last time the command was executed was less than `time-limit` milliseconds back, the command will not be re-executed, instead, the cached result will be printed
 
+If the cache needs to be cleared, run
+```
+$ command-cache --purge
+```
+
 ## Why?
 
 At the time of writing (29/03/2023) Waybar seems to launch custom modules' commands indipendently per monitor. This causes the modules to have different outputs on different monitors, and it also makes the modules whose commands' outputs are based on the time elapsed between executions misbehave
