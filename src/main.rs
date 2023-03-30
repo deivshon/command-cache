@@ -39,11 +39,11 @@ fn command_hash(command: &[String]) -> md5::Digest {
 }
 
 #[inline]
-fn current_timestamp() -> u128 {
+fn current_timestamp() -> u64 {
     SystemTime::UNIX_EPOCH
         .elapsed()
         .expect("Could not retrieve UNIX timestamp")
-        .as_millis()
+        .as_millis() as u64
 }
 
 fn store_output(
@@ -102,7 +102,7 @@ fn main() {
         failure("Not enough arguments");
     }
 
-    let Ok(period) = args[TIME_LIMIT].parse::<u128>() else {
+    let Ok(period) = args[TIME_LIMIT].parse::<u64>() else {
         failure("Could not parse time limit");
     };
 

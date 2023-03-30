@@ -2,6 +2,10 @@ use core::convert;
 use std::fmt;
 use std::str::Utf8Error;
 
+const TS_START: usize = 0;
+const TS_STOP: usize = 8;
+const OUTPUT_START: usize = 8;
+
 pub enum ParseError {
     TimestampErr,
     UTF8Err(Utf8Error),
@@ -27,7 +31,7 @@ impl convert::From<Utf8Error> for ParseError {
 }
 
 pub struct Cache {
-    pub ts: u128,
+    pub ts: u64,
     pub output: String,
 }
 
@@ -39,12 +43,12 @@ impl convert::TryFrom<Vec<u8>> for Cache {
             return Err(ParseError::MalformedCache);
         }
 
-        let Ok(ts_bytes) = bytes[0..16].try_into() else {
+        let Ok(ts_bytes) = bytes[TS_START..TS_STOP].try_into() else {
 			return Err(ParseError::TimestampErr)
 		};
-        let ts = u128::from_le_bytes(ts_bytes);
+        let ts = u64::from_le_bytes(ts_bytes);
 
-        let output = std::str::from_utf8(&bytes[16..])?.to_string();
+        let output = std::str::from_utf8(&bytes[OUTPUT_START..])?.to_string();
 
         return Ok(Cache {
             ts: ts,
