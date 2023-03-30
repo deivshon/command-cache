@@ -39,7 +39,7 @@ impl convert::TryFrom<Vec<u8>> for Cache {
     type Error = ParseError;
 
     fn try_from(bytes: Vec<u8>) -> Result<Cache, ParseError> {
-        if bytes.len() < 16 {
+        if bytes.len() < TS_STOP {
             return Err(ParseError::MalformedCache);
         }
 
