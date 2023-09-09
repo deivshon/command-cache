@@ -1,4 +1,4 @@
-DEST_DIR = ~/.local/scripts
+INSTALL_DIR=~/.local/bin
 TARGET_DIR = ./target/release
 
 all:
@@ -8,5 +8,5 @@ clean:
 	cargo clean
 
 install: all
-	mkdir -p $(DEST_DIR)
-	cp -f $(TARGET_DIR)/command-cache $(DEST_DIR)
+	mkdir -p $(INSTALL_DIR)
+	cp -f $(TARGET_DIR)/command-cache $(INSTALL_DIR)
