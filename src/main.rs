@@ -11,6 +11,7 @@ use std::path::Path;
 use std::process::exit;
 use std::time::SystemTime;
 
+use bincode;
 use md5;
 
 const CACHE_DIR: &str = "/tmp/command-cache";
@@ -69,7 +70,12 @@ fn store_output(
 }
 
 fn cache_write(filelock: &mut FileLock, cache: &Cache, cache_path: &String) {
-    match filelock.file.write_all(&cache.as_bytes()) {
+    let cache_bytes = match bincode::serialize(&cache) {
+        Ok(cache_bytes) => cache_bytes,
+        Err(e) => failure(format!("Could not serialize cache: {}", e).as_str()),
+    };
+
+    match filelock.file.write_all(&cache_bytes) {
         Ok(_) => (),
         Err(e) => {
             filelock
@@ -134,7 +140,7 @@ fn main() {
             Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e)),
         }
 
-        cache = match Cache::try_from(cache_bytes) {
+        cache = match bincode::deserialize(&cache_bytes) {
             Ok(cache) => cache,
             Err(e) => failure(&format!("{}", e)),
         };
