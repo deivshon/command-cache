@@ -1,9 +1,10 @@
 pub mod cache;
-pub mod command;
+pub mod exec;
 
 use crate::cache::Cache;
-use crate::command::execute_command;
+use crate::exec::execute_command;
 
+use clap::Parser;
 use file_lock::{FileLock, FileOptions};
 use std::fs;
 use std::io::prelude::*;
@@ -14,14 +15,7 @@ use std::time::SystemTime;
 use bincode;
 use md5;
 
-const CACHE_DIR: &str = "/tmp/command-cache";
-
-const COMMAND_CACHE_ARG: usize = 1;
-const TIME_LIMIT: usize = 1;
-const COMMAND: usize = 2;
-const ARGS_START: usize = 3;
-
-const PURGE: &str = "--purge";
+const DEFAULT_CACHE_DIR: &str = "/tmp/command-cache";
 
 fn failure(msg: &str) -> ! {
     eprintln!("command-cache: {}", msg);
@@ -69,94 +63,79 @@ fn store_output(
     };
 }
 
-fn cache_write(filelock: &mut FileLock, cache: &Cache, cache_path: &String) {
-    let cache_bytes = match bincode::serialize(&cache) {
-        Ok(cache_bytes) => cache_bytes,
-        Err(e) => failure(format!("Could not serialize cache: {}", e).as_str()),
-    };
+#[derive(Parser, Debug)]
+#[command(about, long_about = None)]
+struct Args {
+    #[arg(short, long, default_value = DEFAULT_CACHE_DIR)]
+    dir_cache: String,
 
-    match filelock.file.write_all(&cache_bytes) {
-        Ok(_) => (),
-        Err(e) => {
-            filelock
-                .unlock()
-                .expect("Cache write failed, could not unlock cache file to delete before exiting");
+    #[arg(short, long)]
+    period: u64,
 
-            fs::remove_file(&cache_path)
-                .expect("Cache write failed, could not delete cache file before exiting");
-
-            failure(&format!("Could write to {}: {}", cache_path, e))
-        }
-    }
+    #[arg(
+        short,
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        required = true
+    )]
+    command: Vec<String>,
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let args = Args::parse();
 
-    if args[COMMAND_CACHE_ARG] == PURGE {
-        if Path::new(CACHE_DIR).exists() {
-            match fs::remove_dir_all(CACHE_DIR) {
-                Ok(_) => exit(0),
-                Err(e) => failure(&format!("Could not purge cache: {}", e)),
-            }
-        } else {
-            failure("Cache is already empty")
-        }
+    if args.command.is_empty() {
+        failure("A command must be specified");
     }
 
-    if args.len() < 3 {
-        failure("Not enough arguments");
-    }
+    let command_id = format!("{:?}", command_hash(&args.command));
+    let cache_file = format!("{}/{}", args.dir_cache, command_id);
 
-    let Ok(period) = args[TIME_LIMIT].parse::<u64>() else {
-        failure("Could not parse time limit");
-    };
-
-    let command_id = format!("{:?}", command_hash(&args[COMMAND..]));
-    let cache_path = format!("{}/{}", CACHE_DIR, command_id);
-
-    if !Path::new(CACHE_DIR).is_dir() {
-        fs::create_dir_all(CACHE_DIR)
-            .expect(&format!("Could not create cache directory {}", CACHE_DIR));
+    if !Path::new(&args.dir_cache).is_dir() {
+        fs::create_dir_all(&args.dir_cache).expect(&format!(
+            "Could not create cache directory {}",
+            &args.dir_cache
+        ));
     };
 
     let mut output = String::new();
     let mut cache: Cache;
 
-    if Path::new(&cache_path).exists() {
+    if Path::new(&cache_file).exists() {
         let lock_options = FileOptions::new().write(true).read(true);
 
-        let mut filelock = match FileLock::lock(&cache_path, true, lock_options) {
+        let mut filelock = match FileLock::lock(&cache_file, true, lock_options) {
             Ok(lock) => lock,
             Err(e) => failure(&format!(
                 "Could not acquire lock on cache file {}: {}",
-                cache_path, e
+                cache_file, e
             )),
         };
 
-        let mut cache_bytes: Vec<u8> = vec![];
+        let mut cache_bytes: Vec<u8> = Vec::new();
         match filelock.file.read_to_end(&mut cache_bytes) {
             Ok(_) => (),
-            Err(e) => failure(&format!("Could not read from {}: {}", cache_path, e)),
+            Err(e) => failure(&format!("Could not read from {}: {}", cache_file, e)),
         }
 
         cache = match bincode::deserialize(&cache_bytes) {
             Ok(cache) => cache,
-            Err(e) => failure(&format!("{}", e)),
+            Err(e) => failure(&format!("bincode error: {}", e.to_string())),
         };
 
-        if current_timestamp() - cache.ts > period {
+        if current_timestamp() - cache.ts > args.period {
             filelock
                 .file
                 .rewind()
                 .expect("Could not seek to start of cache");
 
             store_output(
-                &args[COMMAND],
-                &args[ARGS_START..],
+                &args.command[0],
+                &args.command[1..],
                 &mut output,
                 &mut filelock,
-                &cache_path,
+                &cache_file,
             );
 
             cache = Cache {
@@ -164,25 +143,25 @@ fn main() {
                 output: output,
             };
 
-            cache_write(&mut filelock, &cache, &cache_path);
+            cache.write(&mut filelock, &cache_file);
         }
     } else {
         let lock_options = FileOptions::new().write(true).read(true).create_new(true);
 
-        let mut filelock = match FileLock::lock(&cache_path, true, lock_options) {
+        let mut filelock = match FileLock::lock(&cache_file, true, lock_options) {
             Ok(lock) => lock,
             Err(e) => failure(&format!(
                 "Could not acquire lock on cache file {}: {}",
-                cache_path, e
+                cache_file, e
             )),
         };
 
         store_output(
-            &args[COMMAND],
-            &args[ARGS_START..],
+            &args.command[0],
+            &args.command[1..],
             &mut output,
             &mut filelock,
-            &cache_path,
+            &cache_file,
         );
 
         cache = Cache {
@@ -190,7 +169,7 @@ fn main() {
             output: output,
         };
 
-        cache_write(&mut filelock, &cache, &cache_path);
+        cache.write(&mut filelock, &cache_file);
     };
 
     print!("{}", cache.output);

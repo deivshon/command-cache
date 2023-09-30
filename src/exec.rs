@@ -1,9 +1,22 @@
-use std::fmt;
 use std::process::Command;
+use std::string::FromUtf8Error;
+use std::{convert, fmt, io};
 
 pub enum CommandError {
-    ExecError(std::io::Error),
-    OutputError(std::string::FromUtf8Error),
+    ExecError(io::Error),
+    OutputError(FromUtf8Error),
+}
+
+impl convert::From<io::Error> for CommandError {
+    fn from(err: io::Error) -> CommandError {
+        return CommandError::ExecError(err);
+    }
+}
+
+impl convert::From<FromUtf8Error> for CommandError {
+    fn from(err: FromUtf8Error) -> CommandError {
+        return CommandError::OutputError(err);
+    }
 }
 
 impl fmt::Display for CommandError {
@@ -17,20 +30,9 @@ impl fmt::Display for CommandError {
 
 pub fn execute_command(command: &String, args: &[String]) -> Result<String, CommandError> {
     let mut command = Command::new(command);
-
     for command_arg in args {
         command.arg(command_arg);
     }
 
-    let command_output = match command.output() {
-        Ok(output) => output,
-        Err(e) => return Err(CommandError::ExecError(e)),
-    };
-
-    let command_output = match String::from_utf8(command_output.stdout) {
-        Ok(output) => output,
-        Err(e) => return Err(CommandError::OutputError(e)),
-    };
-
-    return Ok(command_output);
+    return Ok(String::from_utf8(command.output()?.stdout)?);
 }
