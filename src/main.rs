@@ -14,6 +14,7 @@ use std::time::SystemTime;
 
 use bincode;
 use md5;
+use shellwords;
 
 const DEFAULT_CACHE_DIR: &str = "/tmp/command-cache";
 
@@ -72,24 +73,19 @@ struct Args {
     #[arg(short, long)]
     period: u64,
 
-    #[arg(
-        short,
-        long,
-        use_value_delimiter = true,
-        value_delimiter = ',',
-        required = true
-    )]
-    command: Vec<String>,
+    #[arg(short, long)]
+    command: String,
 }
 
 fn main() {
     let args = Args::parse();
 
-    if args.command.is_empty() {
-        failure("A command must be specified");
-    }
+    let command = match shellwords::split(&args.command) {
+        Ok(c) => c,
+        Err(e) => failure(format!("Error parsing command: {}", e).as_str()),
+    };
 
-    let command_id = format!("{:?}", command_hash(&args.command));
+    let command_id = format!("{:?}", command_hash(&command));
     let cache_file = format!("{}/{}", args.dir_cache, command_id);
 
     if !Path::new(&args.dir_cache).is_dir() {
@@ -131,8 +127,8 @@ fn main() {
                 .expect("Could not seek to start of cache");
 
             store_output(
-                &args.command[0],
-                &args.command[1..],
+                &command[0],
+                &command[1..],
                 &mut output,
                 &mut filelock,
                 &cache_file,
@@ -157,8 +153,8 @@ fn main() {
         };
 
         store_output(
-            &args.command[0],
-            &args.command[1..],
+            &command[0],
+            &command[1..],
             &mut output,
             &mut filelock,
             &cache_file,
