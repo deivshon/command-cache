@@ -7,7 +7,7 @@ The following command line arguments are available
 
 | Argument | Long argument | Description                                                                              | Optional | Default            |
 |----------|---------------|------------------------------------------------------------------------------------------|----------|--------------------|
-| -c       | --command     | Command to be run, with arguments separated by commas                                    | No       | N/A                |
+| -c       | --command     | Command to be run                                                                        | No       | N/A                |
 | -p       | --period      | Threshold beyond which the command needs to be re-run instead of using the cached output | No       | N/A                |
 | -d       | --dir-cache   | Directory where to look for and store the cache file for the current run                 | Yes      | /tmp/command-cache |
 
